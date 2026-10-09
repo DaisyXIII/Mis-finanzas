@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity } from 'react-native';
+import { ArrowRight } from 'lucide-react-native';
 import type { Transaction } from '@/types/finance';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { getIcon } from '@/constants/icons';
@@ -16,12 +17,16 @@ export function TransactionItem({ transaction, onPress }: Props) {
   const { theme } = useTheme();
   const { data } = useFinance();
   const isIncome = transaction.type === 'income';
+  const isTransfer = transaction.type === 'transfer';
   const categories = isIncome ? data.incomeCategories : data.expenseCategories;
-  const catInfo = categories.find((c) => c.name === transaction.category) ?? {
-    icon: isIncome ? 'PlusCircle' : 'MinusCircle',
-    color: isIncome ? Colors.income : Colors.expense,
-  };
+  const catInfo = isTransfer
+    ? { icon: 'ArrowLeftRight', color: Colors.transfer }
+    : categories.find((c) => c.name === transaction.category) ?? {
+        icon: isIncome ? 'PlusCircle' : 'MinusCircle',
+        color: isIncome ? Colors.income : Colors.expense,
+      };
   const IconComp = getIcon(catInfo.icon);
+  const amountColor = isTransfer ? Colors.transfer : isIncome ? Colors.income : Colors.expense;
 
   return (
     <TouchableOpacity
@@ -35,13 +40,22 @@ export function TransactionItem({ transaction, onPress }: Props) {
       </View>
       <View style={styles.middle}>
         <Text style={[styles.category, { color: theme.text }]} numberOfLines={1}>
-          {transaction.category}
+          {isTransfer ? 'Transferencia' : transaction.category}
         </Text>
         <View style={styles.subRow}>
           <View style={[styles.accountDot, { backgroundColor: getAccountColor(data.accounts, transaction.account) }]} />
           <Text style={[styles.account, { color: theme.textFaint }]} numberOfLines={1}>
             {getAccountName(data.accounts, transaction.account)}
           </Text>
+          {isTransfer && (
+            <>
+              <ArrowRight size={11} color={theme.textFaint} strokeWidth={2.2} />
+              <View style={[styles.accountDot, { backgroundColor: getAccountColor(data.accounts, transaction.toAccount ?? '') }]} />
+              <Text style={[styles.account, { color: theme.textFaint }]} numberOfLines={1}>
+                {getAccountName(data.accounts, transaction.toAccount ?? '')}
+              </Text>
+            </>
+          )}
           {transaction.note ? (
             <>
               <Text style={[styles.dotSep, { color: theme.textFaint }]}>·</Text>
@@ -50,8 +64,8 @@ export function TransactionItem({ transaction, onPress }: Props) {
           ) : null}
         </View>
       </View>
-      <Text style={[styles.amount, { color: isIncome ? Colors.income : Colors.expense }]}>
-        {isIncome ? '+' : '−'}
+      <Text style={[styles.amount, { color: amountColor }]}>
+        {isTransfer ? '' : isIncome ? '+' : '−'}
         {formatCurrency(transaction.amount)}
       </Text>
     </TouchableOpacity>

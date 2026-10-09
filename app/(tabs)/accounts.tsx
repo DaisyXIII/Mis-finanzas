@@ -8,7 +8,11 @@ import { useFinance } from '@/context/FinanceContext';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { getIcon } from '@/constants/icons';
 import { useTheme } from '@/hooks/useTheme';
-import { accountBalance, totalBalance, formatCurrency } from '@/lib/finance';
+import {
+  accountBalance, totalBalance, formatCurrency, filterByMonth, accountMonthSummary,
+} from '@/lib/finance';
+import { useMonthNavigator } from '@/hooks/useMonthNavigator';
+import { MonthSelector } from '@/components/MonthSelector';
 import { AccountFormModal } from '@/components/AccountFormModal';
 import type { Account } from '@/types/finance';
 
@@ -23,6 +27,12 @@ export default function AccountsScreen() {
   }, [data.accounts, data.transactions]);
 
   const total = useMemo(() => totalBalance(data.transactions), [data.transactions]);
+
+  const { currentMonth, goPrev, goNext, canGoNext } = useMonthNavigator();
+  const monthSummaries = useMemo(() => {
+    const monthTx = filterByMonth(data.transactions, currentMonth);
+    return data.accounts.map((acc) => ({ acc, ...accountMonthSummary(monthTx, acc.id) }));
+  }, [data.accounts, data.transactions, currentMonth]);
 
   const handleEdit = (acc: Account) => { setEditing(acc); setShowForm(true); };
   const handleNew = () => { setEditing(null); setShowForm(true); };
@@ -114,6 +124,44 @@ export default function AccountsScreen() {
             );
           })}
         </View>
+
+        {accountsWithBalance.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Movimiento del mes</Text>
+            <MonthSelector monthKey={currentMonth} onPrev={goPrev} onNext={goNext} canGoNext={canGoNext} />
+            <View style={{ height: Spacing.md }} />
+            <View style={{ gap: Spacing.md }}>
+              {monthSummaries.map(({ acc, income, expense, transfersIn, transfersOut, net }) => {
+                const rows: { label: string; value: number; color: string; sign: string }[] = [
+                  { label: 'Ingresos', value: income, color: Colors.income, sign: '+' },
+                  { label: 'Gastos', value: expense, color: Colors.expense, sign: '−' },
+                  { label: 'Transferencias recibidas', value: transfersIn, color: Colors.transfer, sign: '+' },
+                  { label: 'Transferencias enviadas', value: transfersOut, color: Colors.transfer, sign: '−' },
+                ];
+                return (
+                  <View key={acc.id} style={[styles.summaryCard, { backgroundColor: theme.card }, cardShadow]}>
+                    <View style={styles.summaryHeader}>
+                      <View style={[styles.summaryDot, { backgroundColor: acc.color }]} />
+                      <Text style={[styles.summaryName, { color: theme.text }]} numberOfLines={1}>{acc.name}</Text>
+                      <Text style={[styles.summaryNet, { color: net >= 0 ? Colors.income : Colors.error }]}>
+                        {net > 0 ? '+' : ''}{formatCurrency(net)}
+                      </Text>
+                    </View>
+                    {rows.filter((r) => r.value > 0).map((r) => (
+                      <View key={r.label} style={styles.summaryRow}>
+                        <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>{r.label}</Text>
+                        <Text style={[styles.summaryValue, { color: r.color }]}>{r.sign}{formatCurrency(r.value)}</Text>
+                      </View>
+                    ))}
+                    {income + expense + transfersIn + transfersOut === 0 && (
+                      <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Sin movimientos este mes</Text>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
       </ScrollView>
 
       <AccountFormModal
@@ -154,6 +202,15 @@ const styles = StyleSheet.create({
   accIcon: { width: 40, height: 40, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   accName: { fontSize: 14, fontFamily: FontFamily.medium, marginBottom: 4 },
   accBalance: { fontSize: 20, fontFamily: FontFamily.bold },
+  sectionTitle: { fontSize: 18, fontFamily: FontFamily.bold, marginTop: Spacing.lg, marginBottom: Spacing.sm },
+  summaryCard: { borderRadius: Radius.xl, padding: Spacing.md, gap: 6 },
+  summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 2 },
+  summaryDot: { width: 10, height: 10, borderRadius: 5 },
+  summaryName: { flex: 1, fontSize: 15, fontFamily: FontFamily.semibold },
+  summaryNet: { fontSize: 15, fontFamily: FontFamily.bold },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  summaryLabel: { fontSize: 13, fontFamily: FontFamily.regular },
+  summaryValue: { fontSize: 13, fontFamily: FontFamily.semibold },
   emptyState: { alignItems: 'center', paddingTop: Spacing.xxl, paddingHorizontal: Spacing.xl, gap: Spacing.sm },
   emptyTitle: { fontSize: 18, fontFamily: FontFamily.bold, marginTop: Spacing.md },
   emptySub: { fontSize: 14, fontFamily: FontFamily.regular, textAlign: 'center' },

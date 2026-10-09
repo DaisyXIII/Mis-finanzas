@@ -1,11 +1,12 @@
-export type TransactionType = 'income' | 'expense';
+export type TransactionType = 'income' | 'expense' | 'transfer';
 
 export interface Transaction {
   id: string;
   type: TransactionType;
   amount: number;
-  category: string;
-  account: string;
+  category: string; // vacío en las transferencias
+  account: string; // cuenta de origen en las transferencias
+  toAccount?: string; // cuenta de destino (solo transferencias)
   note: string;
   date: string; // ISO yyyy-mm-dd
   createdAt: number;

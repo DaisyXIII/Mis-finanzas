@@ -90,9 +90,11 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     setData((prev) => ({
       ...prev,
       accounts: prev.accounts.filter((a) => a.id !== id),
-      transactions: prev.transactions.map((t) =>
-        t.account === id ? { ...t, account: '' } : t
-      ),
+      transactions: prev.transactions.map((t) => ({
+        ...t,
+        account: t.account === id ? '' : t.account,
+        ...(t.toAccount === id ? { toAccount: '' } : {}),
+      })),
     }));
   }, []);
 

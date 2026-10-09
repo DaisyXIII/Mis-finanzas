@@ -50,6 +50,7 @@ export function makeTransaction(
     amount: partial.amount,
     category: partial.category,
     account: partial.account,
+    ...(partial.type === 'transfer' ? { toAccount: partial.toAccount ?? '' } : {}),
     note: partial.note,
     date: partial.date,
     createdAt: partial.createdAt ?? Date.now(),

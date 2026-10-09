@@ -9,8 +9,8 @@ import {
 } from 'react-native';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { format, parseISO } from 'date-fns';
-import { Check, Trash2, ArrowDownLeft, ArrowUpRight, Calendar } from 'lucide-react-native';
-import type { Transaction, Account, CategoryDef } from '@/types/finance';
+import { Check, Trash2, ArrowDownLeft, ArrowUpRight, ArrowLeftRight, Calendar } from 'lucide-react-native';
+import type { Transaction, TransactionType, Account, CategoryDef } from '@/types/finance';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { getIcon } from '@/constants/icons';
 import { useTheme } from '@/hooks/useTheme';
@@ -43,10 +43,11 @@ export function TransactionFormModal({
   expenseCategories,
 }: Props) {
   const { theme } = useTheme();
-  const [type, setType] = useState<'income' | 'expense'>('expense');
+  const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
   const [account, setAccount] = useState('');
+  const [toAccount, setToAccount] = useState('');
   const [note, setNote] = useState('');
   const [date, setDate] = useState(todayISO());
 
@@ -57,6 +58,7 @@ export function TransactionFormModal({
         setAmount(String(editing.amount).replace('.', ','));
         setCategory(editing.category);
         setAccount(editing.account);
+        setToAccount(editing.toAccount ?? '');
         setNote(editing.note);
         setDate(editing.date);
       } else {
@@ -64,6 +66,7 @@ export function TransactionFormModal({
         setAmount('');
         setCategory('');
         setAccount(accounts[0]?.id ?? '');
+        setToAccount('');
         setNote('');
         setDate(todayISO());
       }
@@ -71,12 +74,15 @@ export function TransactionFormModal({
     // Solo se reinicia el formulario al abrirlo, no cada vez que cambian las cuentas.
   }, [visible, editing]);
 
+  const isTransfer = type === 'transfer';
   const categories = type === 'income' ? incomeCategories : expenseCategories;
 
   const canSave = useMemo(() => {
     const amt = parseAmount(amount);
-    return !isNaN(amt) && amt > 0 && category.length > 0 && account.length > 0;
-  }, [amount, category, account]);
+    if (isNaN(amt) || amt <= 0 || account.length === 0) return false;
+    if (isTransfer) return toAccount.length > 0 && toAccount !== account;
+    return category.length > 0;
+  }, [amount, category, account, toAccount, isTransfer]);
 
   // El teclado decimal de Android puede mostrar "," o "." según el idioma; se acepta solo un separador.
   const handleAmountChange = (text: string) => {
@@ -106,12 +112,46 @@ export function TransactionFormModal({
     onSave({
       type,
       amount: Math.round(parseAmount(amount) * 100) / 100,
-      category,
+      category: isTransfer ? '' : category,
       account,
+      ...(isTransfer ? { toAccount } : {}),
       note: note.trim(),
       date,
     });
     onClose();
+  };
+
+  // `disabledId` evita elegir la misma cuenta como origen y destino.
+  const renderAccountChips = (selectedId: string, onSelect: (id: string) => void, disabledId?: string) => {
+    if (accounts.length === 0) {
+      return <Text style={[styles.hint, { color: theme.textFaint }]}>Crea una cuenta en la pestaña Cuentas para poder guardar.</Text>;
+    }
+    return (
+      <View style={styles.chipRow}>
+        {accounts.map((acc) => {
+          const selected = selectedId === acc.id;
+          const disabled = disabledId === acc.id;
+          return (
+            <TouchableOpacity
+              key={acc.id}
+              disabled={disabled}
+              style={[
+                styles.chip,
+                { backgroundColor: theme.chipBg, borderColor: theme.chipBorder },
+                selected && { backgroundColor: acc.color + '20', borderColor: acc.color },
+                disabled && { opacity: 0.35 },
+              ]}
+              onPress={() => onSelect(acc.id)}
+            >
+              <View style={[styles.accDot, { backgroundColor: acc.color }]} />
+              <Text style={[styles.chipText, { color: theme.textSecondary }, selected && { color: acc.color, fontFamily: FontFamily.semibold }]}>
+                {acc.name}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
   };
 
   return (
@@ -143,6 +183,17 @@ export function TransactionFormModal({
           <ArrowDownLeft size={18} color={type === 'income' ? '#fff' : theme.textMuted} strokeWidth={2.5} />
           <Text style={[styles.typeText, { color: theme.textMuted }, type === 'income' && styles.typeTextActive]}>Ingreso</Text>
         </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.typeBtn,
+            { backgroundColor: theme.chipBg, borderColor: theme.chipBorder },
+            type === 'transfer' && styles.typeBtnTransfer,
+          ]}
+          onPress={() => { setType('transfer'); setCategory(''); }}
+        >
+          <ArrowLeftRight size={18} color={type === 'transfer' ? '#fff' : theme.textMuted} strokeWidth={2.5} />
+          <Text style={[styles.typeText, { color: theme.textMuted }, type === 'transfer' && styles.typeTextActive]}>Transf.</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.amountWrap}>
@@ -160,9 +211,11 @@ export function TransactionFormModal({
       </View>
 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>Categoría</Text>
+        {!isTransfer && (
+          <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>Categoría</Text>
+        )}
         <View style={styles.chipRow}>
-          {categories.map((cat) => {
+          {!isTransfer && categories.map((cat) => {
             const Icon = getIcon(cat.icon);
             const selected = category === cat.name;
             return (
@@ -184,31 +237,17 @@ export function TransactionFormModal({
           })}
         </View>
 
-        <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>Cuenta</Text>
-        {accounts.length === 0 ? (
-          <Text style={[styles.hint, { color: theme.textFaint }]}>Crea una cuenta en la pestaña Cuentas para poder guardar.</Text>
-        ) : (
-          <View style={styles.chipRow}>
-            {accounts.map((acc) => {
-              const selected = account === acc.id;
-              return (
-                <TouchableOpacity
-                  key={acc.id}
-                  style={[
-                    styles.chip,
-                    { backgroundColor: theme.chipBg, borderColor: theme.chipBorder },
-                    selected && { backgroundColor: acc.color + '20', borderColor: acc.color },
-                  ]}
-                  onPress={() => setAccount(acc.id)}
-                >
-                  <View style={[styles.accDot, { backgroundColor: acc.color }]} />
-                  <Text style={[styles.chipText, { color: theme.textSecondary }, selected && { color: acc.color, fontFamily: FontFamily.semibold }]}>
-                    {acc.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+        <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>{isTransfer ? 'Desde la cuenta' : 'Cuenta'}</Text>
+        {renderAccountChips(account, setAccount)}
+
+        {isTransfer && (
+          <>
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>A la cuenta</Text>
+            {renderAccountChips(toAccount, setToAccount, account)}
+            {toAccount === account && account.length > 0 && (
+              <Text style={[styles.hint, { color: theme.textFaint, marginTop: Spacing.sm }]}>El origen y el destino deben ser distintos.</Text>
+            )}
+          </>
         )}
 
         <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>Fecha</Text>
@@ -262,6 +301,7 @@ const styles = StyleSheet.create({
   },
   typeBtnExpense: { backgroundColor: Colors.expense, borderColor: Colors.expense },
   typeBtnIncome: { backgroundColor: Colors.income, borderColor: Colors.income },
+  typeBtnTransfer: { backgroundColor: Colors.transfer, borderColor: Colors.transfer },
   typeText: { fontSize: 15, fontFamily: FontFamily.medium },
   typeTextActive: { color: '#fff', fontFamily: FontFamily.semibold },
   amountWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs, marginBottom: Spacing.sm },

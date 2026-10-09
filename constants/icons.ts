@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import {
+  ArrowLeftRight,
   Banknote,
   Briefcase,
   Car,
@@ -29,6 +30,7 @@ type IconComponent = ComponentType<{ size?: number; color?: string; strokeWidth?
 // Solo se importan los iconos que usa la app; `import *` metía toda la librería en el bundle.
 // Las claves son los nombres guardados en los datos (incluye los nombres antiguos de lucide).
 const ICONS: Record<string, IconComponent> = {
+  ArrowLeftRight,
   Banknote,
   Briefcase,
   Car,

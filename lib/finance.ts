@@ -35,21 +35,55 @@ export function balanceFor(transactions: Transaction[]): number {
   return sumByType(transactions, 'income') - sumByType(transactions, 'expense');
 }
 
+// Efecto de un movimiento sobre el saldo de una cuenta. Una transferencia resta del
+// origen y suma al destino, así que el total entre cuentas no cambia.
+function accountDelta(t: Transaction, accountId: string): number {
+  if (t.type === 'transfer') {
+    return (t.toAccount === accountId ? t.amount : 0) - (t.account === accountId ? t.amount : 0);
+  }
+  if (t.account !== accountId) return 0;
+  return t.type === 'income' ? t.amount : -t.amount;
+}
+
 export function accountBalance(
   transactions: Transaction[],
   accountId: string
 ): number {
+  return transactions.reduce((acc, t) => acc + accountDelta(t, accountId), 0);
+}
+
+export function totalBalance(transactions: Transaction[]): number {
   return transactions.reduce((acc, t) => {
-    if (t.account !== accountId) return acc;
+    if (t.type === 'transfer') return acc;
     return acc + (t.type === 'income' ? t.amount : -t.amount);
   }, 0);
 }
 
-export function totalBalance(transactions: Transaction[]): number {
-  return transactions.reduce(
-    (acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount),
-    0
-  );
+export interface AccountMonthSummary {
+  income: number;
+  expense: number;
+  transfersIn: number;
+  transfersOut: number;
+  net: number;
+}
+
+// Movimiento de una cuenta dentro de un mes (recibe solo las transacciones de ese mes).
+export function accountMonthSummary(
+  monthTransactions: Transaction[],
+  accountId: string
+): AccountMonthSummary {
+  const s: AccountMonthSummary = { income: 0, expense: 0, transfersIn: 0, transfersOut: 0, net: 0 };
+  monthTransactions.forEach((t) => {
+    if (t.type === 'transfer') {
+      if (t.toAccount === accountId) s.transfersIn += t.amount;
+      if (t.account === accountId) s.transfersOut += t.amount;
+    } else if (t.account === accountId) {
+      if (t.type === 'income') s.income += t.amount;
+      else s.expense += t.amount;
+    }
+  });
+  s.net = s.income - s.expense + s.transfersIn - s.transfersOut;
+  return s;
 }
 
 export function categoryBreakdown(
