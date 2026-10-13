@@ -2,61 +2,133 @@ import React, { useState, useMemo } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Plus, Wallet, ArrowRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
+import { format, parseISO } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { useFinance } from '@/context/FinanceContext';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { getIcon } from '@/constants/icons';
 import { useTheme } from '@/hooks/useTheme';
+import { useLayout } from '@/hooks/useLayout';
 import { useMonthNavigator } from '@/hooks/useMonthNavigator';
 import {
-  filterByMonth, sumByType, balanceFor, totalBalance, accountBalance,
-  dailySpending, last6MonthsData, sortByDateDesc, formatCurrency,
+  filterByMonth, sumByType, balanceFor, totalBalance, accountBalance, categoryBreakdown,
+  dailySpending, last6MonthsData, sortByDateDesc, formatCurrency, dayISO, shiftMonth, elapsedDays,
 } from '@/lib/finance';
+import { Screen } from '@/components/Screen';
 import { MonthSelector } from '@/components/MonthSelector';
 import { BalanceCard } from '@/components/BalanceCard';
-import { LineChartMini } from '@/components/LineChartMini';
+import { DailyBarChart } from '@/components/DailyBarChart';
+import { DonutChart } from '@/components/DonutChart';
 import { TransactionItem } from '@/components/TransactionItem';
 import { TransactionFormModal } from '@/components/TransactionFormModal';
+import { TransactionListSheet } from '@/components/TransactionListSheet';
 import { MonthlyBarChart } from '@/components/MonthlyBarChart';
+import type { Transaction } from '@/types/finance';
+
+interface SheetContent {
+  title: string;
+  transactions: Transaction[];
+  emptyText: string;
+}
 
 export default function DashboardScreen() {
   const { data, addTransaction } = useFinance();
   const { theme } = useTheme();
+  const { gutter, cardPadding, isCompact } = useLayout();
   const router = useRouter();
   const { currentMonth, goPrev, goNext, canGoNext } = useMonthNavigator();
   const [showForm, setShowForm] = useState(false);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  // El contenido se conserva al cerrar para que no se vacíe durante la animación de salida.
+  const [sheet, setSheet] = useState<SheetContent>({ title: '', transactions: [], emptyText: '' });
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const expensesOnly = data.settings.mode === 'expenses';
 
   const monthTransactions = useMemo(() => filterByMonth(data.transactions, currentMonth), [data.transactions, currentMonth]);
+  // En el modo "solo gastos" se ignoran ingresos y transferencias en toda la pantalla.
+  const visibleTx = useMemo(
+    () => (expensesOnly ? monthTransactions.filter((t) => t.type === 'expense') : monthTransactions),
+    [monthTransactions, expensesOnly]
+  );
   const income = useMemo(() => sumByType(monthTransactions, 'income'), [monthTransactions]);
   const expense = useMemo(() => sumByType(monthTransactions, 'expense'), [monthTransactions]);
   const balance = useMemo(() => balanceFor(monthTransactions), [monthTransactions]);
   const dailyData = useMemo(() => dailySpending(data.transactions, currentMonth), [data.transactions, currentMonth]);
   const sixMonths = useMemo(() => last6MonthsData(data.transactions), [data.transactions]);
   const totalBal = useMemo(() => totalBalance(data.transactions), [data.transactions]);
-  const recentTx = useMemo(() => sortByDateDesc(monthTransactions).slice(0, 5), [monthTransactions]);
+  const recentTx = useMemo(() => sortByDateDesc(visibleTx).slice(0, 5), [visibleTx]);
+  const prevExpense = useMemo(
+    () => sumByType(filterByMonth(data.transactions, shiftMonth(currentMonth, -1)), 'expense'),
+    [data.transactions, currentMonth]
+  );
 
+  const categorySegments = useMemo(() => {
+    return categoryBreakdown(monthTransactions, 'expense').map((b) => {
+      const cat = data.expenseCategories.find((c) => c.name === b.category);
+      return { ...b, color: cat?.color ?? theme.textFaint };
+    });
+  }, [monthTransactions, data.expenseCategories, theme.textFaint]);
+
+  // En el modo "solo gastos" cada cuenta muestra lo gastado en el mes en vez de su saldo.
   const topAccounts = useMemo(() => {
     return data.accounts
-      .map((acc) => ({ ...acc, balance: accountBalance(data.transactions, acc.id) }))
+      .map((acc) => ({
+        ...acc,
+        balance: expensesOnly
+          ? sumByType(visibleTx.filter((t) => t.account === acc.id), 'expense')
+          : accountBalance(data.transactions, acc.id),
+      }))
       .sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance))
       .slice(0, 3);
-  }, [data.accounts, data.transactions]);
+  }, [data.accounts, data.transactions, expensesOnly, visibleTx]);
+
+  const openDay = (index: number) => {
+    const date = dayISO(currentMonth, index);
+    setSelectedDay(index);
+    const label = format(parseISO(date), "EEEE d 'de' MMMM", { locale: es });
+    setSheet({
+      title: label.charAt(0).toUpperCase() + label.slice(1),
+      transactions: visibleTx.filter((t) => t.date === date),
+      emptyText: expensesOnly ? 'Sin gastos este día' : 'Sin movimientos este día',
+    });
+    setSheetOpen(true);
+  };
+
+  const openCategory = (category: string) => {
+    setSheet({
+      title: category,
+      transactions: monthTransactions.filter((t) => t.type === 'expense' && t.category === category),
+      emptyText: 'Sin gastos en esta categoría',
+    });
+    setSheetOpen(true);
+  };
+
+  const closeSheet = () => { setSheetOpen(false); setSelectedDay(null); };
 
   const cardShadow = Platform.select({
     ios: { shadowColor: theme.shadowColor, shadowOpacity: theme.shadowOpacity, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
     android: { elevation: 3 },
   });
 
+  const expenseDiff = prevExpense > 0 ? ((expense - prevExpense) / prevExpense) * 100 : null;
+  const dailyAvg = expense / Math.max(elapsedDays(currentMonth), 1);
+
   return (
-    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+    <Screen>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { padding: gutter }]}>
         <View style={styles.header}>
           <View style={styles.headerText}>
-            <Text style={[styles.greeting, { color: theme.textFaint }]}>Mi dinero</Text>
-            <Text style={[styles.totalBalance, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit>
-              {formatCurrency(totalBal)}
+            <Text style={[styles.greeting, { color: theme.textFaint }]}>
+              {expensesOnly ? 'Gastado este mes' : 'Mi dinero'}
+            </Text>
+            <Text
+              style={[styles.totalBalance, { color: expensesOnly ? Colors.expense : theme.text }, isCompact && { fontSize: 26 }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {formatCurrency(expensesOnly ? expense : totalBal)}
             </Text>
           </View>
           <TouchableOpacity style={styles.fab} onPress={() => setShowForm(true)}>
@@ -67,9 +139,9 @@ export default function DashboardScreen() {
         <MonthSelector monthKey={currentMonth} onPrev={goPrev} onNext={goNext} canGoNext={canGoNext} />
         <View style={{ height: Spacing.md }} />
 
-        <View style={[styles.card, { backgroundColor: theme.card }, cardShadow]}>
+        <View style={[styles.card, { backgroundColor: theme.card, padding: cardPadding }, cardShadow]}>
           <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Cuentas</Text>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>{expensesOnly ? 'Gastos por cuenta' : 'Cuentas'}</Text>
             <TouchableOpacity onPress={() => router.navigate('/accounts')} hitSlop={8}>
               <View style={styles.seeAllRow}>
                 <Text style={[styles.seeAll, { color: Colors.primary[600] }]}>Ver todas</Text>
@@ -86,7 +158,13 @@ export default function DashboardScreen() {
                     <Icon size={16} color={acc.color} strokeWidth={2.2} />
                   </View>
                   <Text style={[styles.accName, { color: theme.textSecondary }]} numberOfLines={1}>{acc.name}</Text>
-                  <Text style={[styles.accBalance, { color: acc.balance >= 0 ? theme.text : Colors.error }]}>
+                  <Text
+                    style={[
+                      styles.accBalance,
+                      { color: expensesOnly ? Colors.expense : acc.balance >= 0 ? theme.text : Colors.error },
+                    ]}
+                    numberOfLines={1}
+                  >
                     {formatCurrency(acc.balance)}
                   </Text>
                 </View>
@@ -99,25 +177,65 @@ export default function DashboardScreen() {
         </View>
 
         <View style={{ height: Spacing.lg }} />
-        <BalanceCard income={income} expense={expense} balance={balance} />
+        {expensesOnly ? (
+          <View style={[styles.card, styles.statsRow, { backgroundColor: theme.card, padding: cardPadding }, cardShadow]}>
+            <View style={styles.statItem}>
+              <Text style={[styles.statLabel, { color: theme.textFaint }]}>Media diaria</Text>
+              <Text style={[styles.statValue, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formatCurrency(dailyAvg)}
+              </Text>
+            </View>
+            <View style={[styles.statDivider, { backgroundColor: theme.borderLight }]} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statLabel, { color: theme.textFaint }]}>Gastos</Text>
+              <Text style={[styles.statValue, { color: theme.text }]}>{visibleTx.length}</Text>
+            </View>
+            <View style={[styles.statDivider, { backgroundColor: theme.borderLight }]} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statLabel, { color: theme.textFaint }]}>vs mes anterior</Text>
+              <Text
+                style={[
+                  styles.statValue,
+                  { color: expenseDiff == null ? theme.textFaint : expenseDiff > 0 ? Colors.expense : Colors.income },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {expenseDiff == null ? '—' : `${expenseDiff > 0 ? '+' : ''}${expenseDiff.toFixed(0)}%`}
+              </Text>
+            </View>
+          </View>
+        ) : (
+          <BalanceCard income={income} expense={expense} balance={balance} />
+        )}
 
         <View style={{ height: Spacing.lg }} />
-        <View style={[styles.card, { backgroundColor: theme.card }, cardShadow]}>
+        <View style={[styles.card, { backgroundColor: theme.card, padding: cardPadding }, cardShadow]}>
           <View style={styles.cardHeader}>
             <Text style={[styles.cardTitle, { color: theme.text }]}>Gastos diarios</Text>
             <Text style={[styles.cardSub, { color: theme.textFaint }]}>{formatCurrency(expense)} total</Text>
           </View>
-          <View style={{ height: Spacing.sm }} />
-          <LineChartMini data={dailyData} color={Colors.expense} />
+          <Text style={[styles.hint, { color: theme.textFaint }]}>Toca un día para ver sus movimientos</Text>
+          <DailyBarChart data={dailyData} color={Colors.expense} selectedIndex={selectedDay} onSelectDay={openDay} />
         </View>
 
-        <View style={{ height: Spacing.lg }} />
-        <MonthlyBarChart data={sixMonths} />
+        {expensesOnly && (
+          <>
+            <View style={{ height: Spacing.lg }} />
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Por categoría</Text>
+            <DonutChart segments={categorySegments} total={expense} type="expense" onSelectCategory={openCategory} />
+          </>
+        )}
 
         <View style={{ height: Spacing.lg }} />
-        <View style={[styles.card, { backgroundColor: theme.card }, cardShadow]}>
+        <MonthlyBarChart data={sixMonths} showIncome={!expensesOnly} />
+
+        <View style={{ height: Spacing.lg }} />
+        <View style={[styles.card, { backgroundColor: theme.card, padding: cardPadding }, cardShadow]}>
           <View style={styles.cardHeader}>
-            <Text style={[styles.cardTitle, { color: theme.text }]}>Movimientos recientes</Text>
+            <Text style={[styles.cardTitle, { color: theme.text }]}>
+              {expensesOnly ? 'Últimos gastos' : 'Movimientos recientes'}
+            </Text>
             <TouchableOpacity onPress={() => router.navigate('/transactions')} hitSlop={8}>
               <View style={styles.seeAllRow}>
                 <Text style={[styles.seeAll, { color: Colors.primary[600] }]}>Ver todos</Text>
@@ -129,7 +247,9 @@ export default function DashboardScreen() {
             {recentTx.length === 0 && (
               <View style={styles.emptyState}>
                 <Wallet size={32} color={theme.textFaint} strokeWidth={1.5} />
-                <Text style={[styles.emptyText, { color: theme.textFaint }]}>Sin movimientos este mes</Text>
+                <Text style={[styles.emptyText, { color: theme.textFaint }]}>
+                  {expensesOnly ? 'Sin gastos este mes' : 'Sin movimientos este mes'}
+                </Text>
                 <TouchableOpacity style={[styles.emptyBtn, { backgroundColor: Colors.primary[50] }]} onPress={() => setShowForm(true)}>
                   <Text style={[styles.emptyBtnText, { color: Colors.primary[600] }]}>Añadir el primero</Text>
                 </TouchableOpacity>
@@ -150,12 +270,19 @@ export default function DashboardScreen() {
         incomeCategories={data.incomeCategories}
         expenseCategories={data.expenseCategories}
       />
-    </SafeAreaView>
+
+      <TransactionListSheet
+        visible={sheetOpen}
+        onClose={closeSheet}
+        title={sheet.title}
+        transactions={sheet.transactions}
+        emptyText={sheet.emptyText}
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   scrollContent: { padding: Spacing.lg, paddingBottom: Spacing.xl },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: Spacing.lg, gap: Spacing.md },
   headerText: { flex: 1 },
@@ -170,16 +297,23 @@ const styles = StyleSheet.create({
     }),
   },
   card: { borderRadius: Radius.xl, padding: Spacing.lg },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.sm + 2 },
-  cardTitle: { fontSize: 16, fontFamily: FontFamily.semibold },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm + 2 },
+  cardTitle: { flexShrink: 1, fontSize: 16, fontFamily: FontFamily.semibold },
   cardSub: { fontSize: 13, fontFamily: FontFamily.medium },
+  hint: { fontSize: 12, fontFamily: FontFamily.regular, marginTop: -Spacing.xs, marginBottom: Spacing.sm },
+  sectionTitle: { fontSize: 16, fontFamily: FontFamily.semibold, marginBottom: Spacing.sm },
+  statsRow: { flexDirection: 'row', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.md },
+  statItem: { flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: Spacing.xs },
+  statDivider: { width: 1, marginVertical: 2 },
+  statLabel: { fontSize: 11, fontFamily: FontFamily.medium, textTransform: 'uppercase', letterSpacing: 0.3, textAlign: 'center' },
+  statValue: { fontSize: 16, fontFamily: FontFamily.bold },
   seeAllRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   seeAll: { fontSize: 13, fontFamily: FontFamily.medium },
   accountList: { gap: 2 },
   accountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm + 2, paddingVertical: Spacing.sm + 2 },
   accIcon: { width: 34, height: 34, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   accName: { flex: 1, fontSize: 15, fontFamily: FontFamily.medium },
-  accBalance: { fontSize: 15, fontFamily: FontFamily.semibold },
+  accBalance: { flexShrink: 0, maxWidth: '55%', fontSize: 15, fontFamily: FontFamily.semibold },
   txList: { marginHorizontal: -Spacing.md, marginVertical: -Spacing.sm - 2 },
   emptyState: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
   emptyText: { fontSize: 14, fontFamily: FontFamily.medium },

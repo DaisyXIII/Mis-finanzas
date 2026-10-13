@@ -11,9 +11,11 @@ import { formatCurrency, getAccountName, getAccountColor } from '@/lib/finance';
 interface Props {
   transaction: Transaction;
   onPress?: (t: Transaction) => void;
+  // Si se está viendo una sola cuenta, las transferencias se muestran como entrada (+) o salida (−).
+  perspectiveAccount?: string;
 }
 
-export function TransactionItem({ transaction, onPress }: Props) {
+export function TransactionItem({ transaction, onPress, perspectiveAccount }: Props) {
   const { theme } = useTheme();
   const { data } = useFinance();
   const isIncome = transaction.type === 'income';
@@ -27,6 +29,10 @@ export function TransactionItem({ transaction, onPress }: Props) {
       };
   const IconComp = getIcon(catInfo.icon);
   const amountColor = isTransfer ? Colors.transfer : isIncome ? Colors.income : Colors.expense;
+  const transferSign =
+    isTransfer && perspectiveAccount
+      ? transaction.toAccount === perspectiveAccount ? '+' : transaction.account === perspectiveAccount ? '−' : ''
+      : '';
 
   return (
     <TouchableOpacity
@@ -64,8 +70,8 @@ export function TransactionItem({ transaction, onPress }: Props) {
           ) : null}
         </View>
       </View>
-      <Text style={[styles.amount, { color: amountColor }]}>
-        {isTransfer ? '' : isIncome ? '+' : '−'}
+      <Text style={[styles.amount, { color: amountColor }]} numberOfLines={1}>
+        {isTransfer ? transferSign : isIncome ? '+' : '−'}
         {formatCurrency(transaction.amount)}
       </Text>
     </TouchableOpacity>
@@ -119,6 +125,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   amount: {
+    flexShrink: 0,
+    maxWidth: '45%',
     fontSize: 15,
     fontFamily: FontFamily.bold,
   },

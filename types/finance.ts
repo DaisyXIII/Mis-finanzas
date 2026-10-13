@@ -26,9 +26,22 @@ export interface CategoryDef {
   color: string;
 }
 
+export type CategoryType = 'income' | 'expense';
+
+// 'full': cuentas, ingresos, gastos y balances. 'expenses': solo control de gastos del mes.
+export type AppMode = 'full' | 'expenses';
+
+export type ThemePreference = 'system' | 'light' | 'dark';
+
+export interface AppSettings {
+  mode: AppMode;
+  theme: ThemePreference;
+}
+
 export interface FinanceData {
   transactions: Transaction[];
   accounts: Account[];
   incomeCategories: CategoryDef[];
   expenseCategories: CategoryDef[];
+  settings: AppSettings;
 }

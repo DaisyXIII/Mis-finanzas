@@ -1,4 +1,5 @@
 import { useColorScheme } from 'react-native';
+import { useFinance } from '@/context/FinanceContext';
 
 export interface AppTheme {
   background: string;
@@ -71,6 +72,8 @@ const darkTheme: AppTheme = {
 
 export function useTheme(): { theme: AppTheme; isDark: boolean } {
   const scheme = useColorScheme();
-  const isDark = scheme === 'dark';
+  // El tema elegido en Ajustes manda; con 'system' se sigue el del teléfono.
+  const preference = useFinance().data.settings.theme;
+  const isDark = preference === 'system' ? scheme === 'dark' : preference === 'dark';
   return { theme: isDark ? darkTheme : lightTheme, isDark };
 }

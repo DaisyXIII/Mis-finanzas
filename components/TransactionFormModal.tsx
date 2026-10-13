@@ -14,6 +14,7 @@ import type { Transaction, TransactionType, Account, CategoryDef } from '@/types
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { getIcon } from '@/constants/icons';
 import { useTheme } from '@/hooks/useTheme';
+import { useFinance } from '@/context/FinanceContext';
 import { todayISO, formatDateLabel } from '@/lib/finance';
 import { BottomSheetModal } from '@/components/BottomSheetModal';
 
@@ -26,6 +27,8 @@ interface Props {
   accounts: Account[];
   incomeCategories: CategoryDef[];
   expenseCategories: CategoryDef[];
+  // Cuenta preseleccionada al crear (p. ej. la que se está filtrando en Movimientos).
+  defaultAccount?: string;
 }
 
 function parseAmount(value: string): number {
@@ -41,8 +44,11 @@ export function TransactionFormModal({
   accounts,
   incomeCategories,
   expenseCategories,
+  defaultAccount,
 }: Props) {
   const { theme } = useTheme();
+  // En el modo "solo gastos" se registran gastos y transferencias, pero no ingresos.
+  const expensesOnly = useFinance().data.settings.mode === 'expenses';
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
   const [category, setCategory] = useState('');
@@ -65,7 +71,7 @@ export function TransactionFormModal({
         setType('expense');
         setAmount('');
         setCategory('');
-        setAccount(accounts[0]?.id ?? '');
+        setAccount(accounts.some((a) => a.id === defaultAccount) ? defaultAccount! : accounts[0]?.id ?? '');
         setToAccount('');
         setNote('');
         setDate(todayISO());
@@ -170,19 +176,22 @@ export function TransactionFormModal({
           onPress={() => { setType('expense'); setCategory(''); }}
         >
           <ArrowUpRight size={18} color={type === 'expense' ? '#fff' : theme.textMuted} strokeWidth={2.5} />
-          <Text style={[styles.typeText, { color: theme.textMuted }, type === 'expense' && styles.typeTextActive]}>Gasto</Text>
+          <Text style={[styles.typeText, { color: theme.textMuted }, type === 'expense' && styles.typeTextActive]} numberOfLines={1} adjustsFontSizeToFit>Gasto</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.typeBtn,
-            { backgroundColor: theme.chipBg, borderColor: theme.chipBorder },
-            type === 'income' && styles.typeBtnIncome,
-          ]}
-          onPress={() => { setType('income'); setCategory(''); }}
-        >
-          <ArrowDownLeft size={18} color={type === 'income' ? '#fff' : theme.textMuted} strokeWidth={2.5} />
-          <Text style={[styles.typeText, { color: theme.textMuted }, type === 'income' && styles.typeTextActive]}>Ingreso</Text>
-        </TouchableOpacity>
+        {/* En el modo "solo gastos" no se registran ingresos. */}
+        {!expensesOnly && (
+          <TouchableOpacity
+            style={[
+              styles.typeBtn,
+              { backgroundColor: theme.chipBg, borderColor: theme.chipBorder },
+              type === 'income' && styles.typeBtnIncome,
+            ]}
+            onPress={() => { setType('income'); setCategory(''); }}
+          >
+            <ArrowDownLeft size={18} color={type === 'income' ? '#fff' : theme.textMuted} strokeWidth={2.5} />
+            <Text style={[styles.typeText, { color: theme.textMuted }, type === 'income' && styles.typeTextActive]} numberOfLines={1} adjustsFontSizeToFit>Ingreso</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={[
             styles.typeBtn,
@@ -192,7 +201,9 @@ export function TransactionFormModal({
           onPress={() => { setType('transfer'); setCategory(''); }}
         >
           <ArrowLeftRight size={18} color={type === 'transfer' ? '#fff' : theme.textMuted} strokeWidth={2.5} />
-          <Text style={[styles.typeText, { color: theme.textMuted }, type === 'transfer' && styles.typeTextActive]}>Transf.</Text>
+          <Text style={[styles.typeText, { color: theme.textMuted }, type === 'transfer' && styles.typeTextActive]} numberOfLines={1} adjustsFontSizeToFit>
+            {expensesOnly ? 'Transferencia' : 'Transf.'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -297,12 +308,12 @@ const styles = StyleSheet.create({
   typeRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
   typeBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: Spacing.xs + 2, paddingVertical: Spacing.sm + 2, borderRadius: Radius.md, borderWidth: 1.5,
+    gap: Spacing.xs + 2, paddingVertical: Spacing.sm + 2, paddingHorizontal: Spacing.xs, borderRadius: Radius.md, borderWidth: 1.5,
   },
   typeBtnExpense: { backgroundColor: Colors.expense, borderColor: Colors.expense },
   typeBtnIncome: { backgroundColor: Colors.income, borderColor: Colors.income },
   typeBtnTransfer: { backgroundColor: Colors.transfer, borderColor: Colors.transfer },
-  typeText: { fontSize: 15, fontFamily: FontFamily.medium },
+  typeText: { flexShrink: 1, fontSize: 15, fontFamily: FontFamily.medium },
   typeTextActive: { color: '#fff', fontFamily: FontFamily.semibold },
   amountWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.xs, marginBottom: Spacing.sm },
   amountCurrency: { fontSize: 28, fontFamily: FontFamily.bold },

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Appearance } from 'react-native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -16,9 +17,16 @@ import { useTheme } from '@/hooks/useTheme';
 SplashScreen.preventAutoHideAsync();
 
 function RootNavigator({ fontsReady }: { fontsReady: boolean }) {
-  const { loading } = useFinance();
+  const { loading, data } = useFinance();
   const { theme, isDark } = useTheme();
   const ready = fontsReady && !loading;
+  const themePreference = data.settings.theme;
+
+  // Fuerza también el modo de los componentes nativos (selector de fecha, alertas...).
+  useEffect(() => {
+    if (loading) return;
+    Appearance.setColorScheme(themePreference === 'system' ? null : themePreference);
+  }, [themePreference, loading]);
 
   // Fondo de la ventana nativa: evita destellos blancos en modo oscuro (teclado, transiciones).
   useEffect(() => {

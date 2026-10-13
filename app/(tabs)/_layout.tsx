@@ -1,7 +1,8 @@
 import React from 'react';
+import { Text } from 'react-native';
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LayoutDashboard, ArrowLeftRight, Wallet, ChartPie } from 'lucide-react-native';
+import { LayoutDashboard, ArrowLeftRight, Wallet, ChartPie, Settings } from 'lucide-react-native';
 import { Colors, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
 
@@ -22,10 +23,19 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors.primary[600],
         tabBarInactiveTintColor: theme.textFaint,
         sceneStyle: { backgroundColor: theme.background },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontFamily: 'Inter-Medium',
-        },
+        // Con 5 pestañas, en móviles estrechos o con letra grande "Estadísticas" no cabe:
+        // la etiqueta se encoge en vez de cortarse.
+        tabBarLabel: ({ color, children }) => (
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            maxFontSizeMultiplier={1.3}
+            style={{ color, fontSize: 11, fontFamily: 'Inter-Medium', maxWidth: '100%', paddingHorizontal: 2 }}
+          >
+            {children}
+          </Text>
+        ),
         tabBarStyle: {
           backgroundColor: theme.tabBg,
           borderTopColor: theme.tabBorder,
@@ -34,7 +44,7 @@ export default function TabLayout() {
           height: TAB_BAR_HEIGHT + bottomInset,
           paddingBottom: bottomInset,
           paddingTop: Spacing.xs + 2,
-          paddingHorizontal: Spacing.sm,
+          paddingHorizontal: Spacing.xs,
         },
       }}
     >
@@ -64,6 +74,13 @@ export default function TabLayout() {
         options={{
           title: 'Cuentas',
           tabBarIcon: ({ color }) => <Wallet size={22} color={color} strokeWidth={2.2} />,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: 'Ajustes',
+          tabBarIcon: ({ color }) => <Settings size={22} color={color} strokeWidth={2.2} />,
         }}
       />
     </Tabs>

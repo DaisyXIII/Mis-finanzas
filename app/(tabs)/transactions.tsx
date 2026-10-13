@@ -1,32 +1,72 @@
 import React, { useState, useMemo } from 'react';
 import {
-  StyleSheet, View, Text, TouchableOpacity, SectionList, Platform, Alert,
+  StyleSheet, View, Text, TouchableOpacity, SectionList, ScrollView, Platform, Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Plus, Wallet } from 'lucide-react-native';
 import { useFinance } from '@/context/FinanceContext';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
+import { useLayout } from '@/hooks/useLayout';
 import { useMonthNavigator } from '@/hooks/useMonthNavigator';
 import {
-  filterByMonth, sumByType, balanceFor, groupByDate, formatDateLabel, formatCurrency,
+  filterByMonth, sumByType, balanceFor, groupByDate, formatDateLabel, formatCurrency, accountBalance,
 } from '@/lib/finance';
+import { Screen } from '@/components/Screen';
 import { MonthSelector } from '@/components/MonthSelector';
 import { TransactionItem } from '@/components/TransactionItem';
 import { TransactionFormModal } from '@/components/TransactionFormModal';
 import type { Transaction } from '@/types/finance';
 
+// Valor del filtro para los movimientos cuya cuenta se borró.
+const NO_ACCOUNT = '__none__';
+
 export default function TransactionsScreen() {
   const { data, addTransaction, updateTransaction, deleteTransaction } = useFinance();
   const { theme } = useTheme();
+  const { gutter } = useLayout();
   const { currentMonth, goPrev, goNext, canGoNext } = useMonthNavigator();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Transaction | null>(null);
+  const [accountFilter, setAccountFilter] = useState<string | null>(null);
+  const expensesOnly = data.settings.mode === 'expenses';
 
-  const monthTransactions = useMemo(() => filterByMonth(data.transactions, currentMonth), [data.transactions, currentMonth]);
+  const accountIds = useMemo(() => new Set(data.accounts.map((a) => a.id)), [data.accounts]);
+  // En el modo "solo gastos" se listan gastos y transferencias (los ingresos quedan ocultos).
+  const baseTransactions = useMemo(
+    () => (expensesOnly ? data.transactions.filter((t) => t.type !== 'income') : data.transactions),
+    [data.transactions, expensesOnly]
+  );
+  const hasOrphans = useMemo(
+    () => baseTransactions.some((t) => !accountIds.has(t.account) || (t.type === 'transfer' && !accountIds.has(t.toAccount ?? ''))),
+    [baseTransactions, accountIds]
+  );
+
+  // El filtro se ignora si la cuenta ya no existe.
+  const activeFilter =
+    accountFilter == null
+      ? null
+      : accountFilter === NO_ACCOUNT
+        ? (hasOrphans ? NO_ACCOUNT : null)
+        : (accountIds.has(accountFilter) ? accountFilter : null);
+
+  const monthTransactions = useMemo(() => {
+    const all = filterByMonth(baseTransactions, currentMonth);
+    if (activeFilter === NO_ACCOUNT) {
+      return all.filter((t) => !accountIds.has(t.account) || (t.type === 'transfer' && !accountIds.has(t.toAccount ?? '')));
+    }
+    if (activeFilter) return all.filter((t) => t.account === activeFilter || t.toAccount === activeFilter);
+    return all;
+  }, [baseTransactions, currentMonth, activeFilter, accountIds]);
   const income = useMemo(() => sumByType(monthTransactions, 'income'), [monthTransactions]);
   const expense = useMemo(() => sumByType(monthTransactions, 'expense'), [monthTransactions]);
   const balance = useMemo(() => balanceFor(monthTransactions), [monthTransactions]);
+  const expenseCount = useMemo(() => monthTransactions.filter((t) => t.type === 'expense').length, [monthTransactions]);
+
+  const filteredAccount = data.accounts.find((a) => a.id === activeFilter);
+  const filteredAccountBalance = useMemo(
+    () => (filteredAccount ? accountBalance(data.transactions, filteredAccount.id) : 0),
+    [filteredAccount, data.transactions]
+  );
 
   const sections = useMemo(() => {
     return groupByDate(monthTransactions).map((group) => ({
@@ -50,50 +90,130 @@ export default function TransactionsScreen() {
     ]);
   };
 
+  const filterChips: { id: string | null; label: string; color?: string }[] = [
+    { id: null, label: 'Todas' },
+    ...data.accounts.map((a) => ({ id: a.id, label: a.name, color: a.color })),
+    ...(hasOrphans ? [{ id: NO_ACCOUNT, label: 'Sin cuenta', color: theme.textFaint }] : []),
+  ];
+
+  const emptyTitle = 'Sin movimientos';
+  const noun = 'movimientos';
+  const emptySub = filteredAccount
+    ? `No hay ${noun} en «${filteredAccount.name}» este mes.`
+    : activeFilter === NO_ACCOUNT
+      ? `No hay ${noun} sin cuenta este mes.`
+      : 'No has registrado ningún movimiento este mes.';
+
   return (
-    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.background }]}>
-      <View style={styles.headerBar}>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Movimientos</Text>
+    <Screen>
+      <View style={[styles.headerBar, { paddingHorizontal: gutter }]}>
+        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit>
+          Movimientos
+        </Text>
         <TouchableOpacity style={styles.fab} onPress={handleNew}>
           <Plus size={22} color="#fff" strokeWidth={2.5} />
         </TouchableOpacity>
       </View>
 
-      <View style={styles.padding}>
+      <View style={{ paddingHorizontal: gutter }}>
         <MonthSelector monthKey={currentMonth} onPrev={goPrev} onNext={goNext} canGoNext={canGoNext} />
       </View>
 
+      {data.accounts.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={[styles.filterRow, { paddingHorizontal: gutter }]}
+        >
+          {filterChips.map((chip) => {
+            const selected = activeFilter === chip.id;
+            const accent = chip.color ?? Colors.primary[600];
+            return (
+              <TouchableOpacity
+                key={chip.id ?? 'all'}
+                style={[
+                  styles.filterChip,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                  selected && { backgroundColor: accent + '20', borderColor: accent },
+                ]}
+                onPress={() => setAccountFilter(chip.id)}
+                activeOpacity={0.7}
+              >
+                {chip.color && <View style={[styles.filterDot, { backgroundColor: chip.color }]} />}
+                <Text
+                  style={[
+                    styles.filterText,
+                    { color: theme.textSecondary },
+                    selected && { color: accent, fontFamily: FontFamily.semibold },
+                  ]}
+                  numberOfLines={1}
+                >
+                  {chip.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
       <View style={[
-        styles.summaryRow, { backgroundColor: theme.card },
+        styles.summaryRow, { backgroundColor: theme.card, marginHorizontal: gutter },
+        data.accounts.length === 0 && { marginTop: Spacing.md },
         Platform.select({
           ios: { shadowColor: theme.shadowColor, shadowOpacity: theme.shadowOpacity, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } },
           android: { elevation: 2 },
         }),
       ]}>
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Ingresos</Text>
-          <Text style={[styles.summaryValue, { color: Colors.income }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(income)}</Text>
-        </View>
-        <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Gastos</Text>
-          <Text style={[styles.summaryValue, { color: Colors.expense }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(expense)}</Text>
-        </View>
-        <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
-        <View style={styles.summaryItem}>
-          <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Balance</Text>
-          <Text style={[styles.summaryValue, { color: balance >= 0 ? Colors.income : Colors.error }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(balance)}</Text>
-        </View>
+        {expensesOnly ? (
+          <>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: theme.textFaint }]} numberOfLines={1}>Total gastado</Text>
+              <Text style={[styles.summaryValue, { color: Colors.expense }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(expense)}</Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: theme.textFaint }]} numberOfLines={1}>Nº de gastos</Text>
+              <Text style={[styles.summaryValue, { color: theme.text }]}>{expenseCount}</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: theme.textFaint }]} numberOfLines={1}>Ingresos</Text>
+              <Text style={[styles.summaryValue, { color: Colors.income }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(income)}</Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: theme.textFaint }]} numberOfLines={1}>Gastos</Text>
+              <Text style={[styles.summaryValue, { color: Colors.expense }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(expense)}</Text>
+            </View>
+            <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
+            <View style={styles.summaryItem}>
+              <Text style={[styles.summaryLabel, { color: theme.textFaint }]} numberOfLines={1}>Balance</Text>
+              <Text style={[styles.summaryValue, { color: balance >= 0 ? Colors.income : Colors.error }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(balance)}</Text>
+            </View>
+          </>
+        )}
       </View>
+      {/* En "solo gastos" no se muestran saldos. */}
+      {filteredAccount && !expensesOnly && (
+        <Text style={[styles.accountBalance, { color: theme.textMuted, paddingHorizontal: gutter }]} numberOfLines={1}>
+          Saldo actual de {filteredAccount.name}:{' '}
+          <Text style={{ color: filteredAccountBalance >= 0 ? theme.text : Colors.error, fontFamily: FontFamily.semibold }}>
+            {formatCurrency(filteredAccountBalance)}
+          </Text>
+        </Text>
+      )}
 
       {sections.length === 0 ? (
         <View style={styles.emptyState}>
           <Wallet size={48} color={theme.textFaint} strokeWidth={1.5} />
-          <Text style={[styles.emptyTitle, { color: theme.textSecondary }]}>Sin movimientos</Text>
-          <Text style={[styles.emptySub, { color: theme.textFaint }]}>No has registrado ningún movimiento este mes.</Text>
+          <Text style={[styles.emptyTitle, { color: theme.textSecondary }]}>{emptyTitle}</Text>
+          <Text style={[styles.emptySub, { color: theme.textFaint }]}>{emptySub}</Text>
           <TouchableOpacity style={styles.emptyBtn} onPress={handleNew}>
             <Plus size={18} color="#fff" strokeWidth={2.5} />
-            <Text style={styles.emptyBtnText}>Añadir movimiento</Text>
+            <Text style={styles.emptyBtnText}>{expensesOnly ? 'Añadir gasto' : 'Añadir movimiento'}</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -105,8 +225,10 @@ export default function TransactionsScreen() {
               <Text style={[styles.sectionTitle, { color: theme.textMuted }]}>{title}</Text>
             </View>
           )}
-          renderItem={({ item }) => <TransactionItem transaction={item} onPress={handleEdit} />}
-          contentContainerStyle={styles.listContent}
+          renderItem={({ item }) => (
+            <TransactionItem transaction={item} onPress={handleEdit} perspectiveAccount={activeFilter ?? undefined} />
+          )}
+          contentContainerStyle={[styles.listContent, { paddingHorizontal: gutter }]}
           showsVerticalScrollIndicator={false}
           stickySectionHeadersEnabled={false}
         />
@@ -121,19 +243,18 @@ export default function TransactionsScreen() {
         accounts={data.accounts}
         incomeCategories={data.incomeCategories}
         expenseCategories={data.expenseCategories}
+        defaultAccount={filteredAccount?.id}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  padding: { paddingHorizontal: Spacing.lg },
   headerBar: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.md,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.md,
+    paddingTop: Spacing.lg, paddingBottom: Spacing.md,
   },
-  headerTitle: { fontSize: 28, fontFamily: FontFamily.bold },
+  headerTitle: { flexShrink: 1, fontSize: 28, fontFamily: FontFamily.bold },
   fab: {
     width: 48, height: 48, borderRadius: Radius.full, backgroundColor: Colors.primary[600],
     alignItems: 'center', justifyContent: 'center',
@@ -142,15 +263,25 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
+  filterScroll: { flexGrow: 0, marginTop: Spacing.md },
+  filterRow: { gap: Spacing.sm },
+  filterChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 180,
+    paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 3,
+    borderRadius: Radius.full, borderWidth: 1.5,
+  },
+  filterDot: { width: 8, height: 8, borderRadius: 4 },
+  filterText: { fontSize: 13, fontFamily: FontFamily.medium, flexShrink: 1 },
   summaryRow: {
-    flexDirection: 'row', marginHorizontal: Spacing.lg, marginTop: Spacing.md, marginBottom: Spacing.sm,
+    flexDirection: 'row', marginTop: Spacing.sm + 2, marginBottom: Spacing.sm,
     borderRadius: Radius.lg, paddingVertical: Spacing.md, paddingHorizontal: Spacing.xs,
   },
   summaryItem: { flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: Spacing.xs },
   summaryDivider: { width: 1, marginVertical: 2 },
   summaryLabel: { fontSize: 11, fontFamily: FontFamily.medium, textTransform: 'uppercase', letterSpacing: 0.5 },
   summaryValue: { fontSize: 15, fontFamily: FontFamily.bold },
-  listContent: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl },
+  accountBalance: { fontSize: 13, fontFamily: FontFamily.regular, marginBottom: Spacing.xs },
+  listContent: { paddingBottom: Spacing.xl },
   sectionHeader: { paddingTop: Spacing.md, paddingBottom: Spacing.sm },
   sectionTitle: { fontSize: 13, fontFamily: FontFamily.semibold },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: Spacing.xl, gap: Spacing.sm },

@@ -18,9 +18,14 @@ interface Props {
   onDelete?: (id: string) => void;
   editing?: Account | null;
   balance: number;
+  balanceLabel?: string;
+  // Color fijo del importe; si no se indica, verde o rojo según el signo.
+  balanceColor?: string;
 }
 
-export function AccountFormModal({ visible, onClose, onSave, onDelete, editing, balance }: Props) {
+export function AccountFormModal({
+  visible, onClose, onSave, onDelete, editing, balance, balanceLabel = 'Balance actual', balanceColor,
+}: Props) {
   const { theme } = useTheme();
   const [name, setName] = useState('');
   const [color, setColor] = useState(ACCOUNT_COLORS[0]);
@@ -53,8 +58,8 @@ export function AccountFormModal({ visible, onClose, onSave, onDelete, editing, 
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {editing && (
           <View style={[styles.balanceBanner, { backgroundColor: theme.borderLight }]}>
-            <Text style={[styles.balanceLabel, { color: theme.textMuted }]}>Balance actual</Text>
-            <Text style={[styles.balanceAmount, { color: balance >= 0 ? Colors.income : Colors.error }]}>
+            <Text style={[styles.balanceLabel, { color: theme.textMuted }]}>{balanceLabel}</Text>
+            <Text style={[styles.balanceAmount, { color: balanceColor ?? (balance >= 0 ? Colors.income : Colors.error) }]}>
               {formatCurrency(balance)}
             </Text>
           </View>

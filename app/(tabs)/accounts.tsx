@@ -2,16 +2,18 @@ import React, { useState, useMemo } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Platform, Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Plus, Wallet, Pen } from 'lucide-react-native';
 import { useFinance } from '@/context/FinanceContext';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { getIcon } from '@/constants/icons';
 import { useTheme } from '@/hooks/useTheme';
+import { useLayout } from '@/hooks/useLayout';
 import {
-  accountBalance, totalBalance, formatCurrency, filterByMonth, accountMonthSummary,
+  accountBalance, totalBalance, formatCurrency, filterByMonth, accountMonthSummary, categoryBreakdown,
+  monthKey, sumByType,
 } from '@/lib/finance';
 import { useMonthNavigator } from '@/hooks/useMonthNavigator';
+import { Screen } from '@/components/Screen';
 import { MonthSelector } from '@/components/MonthSelector';
 import { AccountFormModal } from '@/components/AccountFormModal';
 import type { Account } from '@/types/finance';
@@ -19,19 +21,44 @@ import type { Account } from '@/types/finance';
 export default function AccountsScreen() {
   const { data, addAccount, updateAccount, deleteAccount } = useFinance();
   const { theme } = useTheme();
+  const { gutter, cardPadding } = useLayout();
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Account | null>(null);
 
-  const accountsWithBalance = useMemo(() => {
-    return data.accounts.map((acc) => ({ ...acc, balance: accountBalance(data.transactions, acc.id) }));
-  }, [data.accounts, data.transactions]);
+  const expensesOnly = data.settings.mode === 'expenses';
 
-  const total = useMemo(() => totalBalance(data.transactions), [data.transactions]);
+  // En el modo "solo gastos" no se muestran saldos: cada cuenta enseña lo gastado este mes.
+  const thisMonthExpenses = useMemo(
+    () => filterByMonth(data.transactions, monthKey(new Date())).filter((t) => t.type === 'expense'),
+    [data.transactions]
+  );
+  const accountExpense = (tx: typeof data.transactions, id: string) =>
+    sumByType(tx.filter((t) => t.account === id), 'expense');
+
+  const accountsWithBalance = useMemo(() => {
+    return data.accounts.map((acc) => ({
+      ...acc,
+      balance: expensesOnly ? accountExpense(thisMonthExpenses, acc.id) : accountBalance(data.transactions, acc.id),
+    }));
+  }, [data.accounts, data.transactions, expensesOnly, thisMonthExpenses]);
+
+  const total = useMemo(
+    () => (expensesOnly ? sumByType(thisMonthExpenses, 'expense') : totalBalance(data.transactions)),
+    [data.transactions, expensesOnly, thisMonthExpenses]
+  );
 
   const { currentMonth, goPrev, goNext, canGoNext } = useMonthNavigator();
   const monthSummaries = useMemo(() => {
     const monthTx = filterByMonth(data.transactions, currentMonth);
-    return data.accounts.map((acc) => ({ acc, ...accountMonthSummary(monthTx, acc.id) }));
+    return data.accounts.map((acc) => {
+      const accExpenses = monthTx.filter((t) => t.type === 'expense' && t.account === acc.id);
+      return {
+        acc,
+        ...accountMonthSummary(monthTx, acc.id),
+        expenseCount: accExpenses.length,
+        topCategory: categoryBreakdown(accExpenses, 'expense')[0]?.category ?? '',
+      };
+    });
   }, [data.accounts, data.transactions, currentMonth]);
 
   const handleEdit = (acc: Account) => { setEditing(acc); setShowForm(true); };
@@ -59,8 +86,8 @@ export default function AccountsScreen() {
   });
 
   return (
-    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.background }]}>
-      <View style={styles.headerBar}>
+    <Screen>
+      <View style={[styles.headerBar, { paddingHorizontal: gutter }]}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Cuentas</Text>
         <TouchableOpacity style={styles.fab} onPress={handleNew}>
           <Plus size={22} color="#fff" strokeWidth={2.5} />
@@ -68,14 +95,20 @@ export default function AccountsScreen() {
       </View>
 
       <View style={[
-        styles.totalCard, { backgroundColor: theme.totalCardBg },
+        styles.totalCard, { backgroundColor: theme.totalCardBg, marginHorizontal: gutter, padding: cardPadding },
         Platform.select({
           ios: { shadowColor: theme.shadowColor, shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
           android: { elevation: 5 },
         }),
       ]}>
-        <Text style={[styles.totalLabel, { color: theme.totalCardSub }]}>Balance total</Text>
-        <Text style={[styles.totalAmount, { color: total >= 0 ? '#fff' : Colors.error }]} numberOfLines={1} adjustsFontSizeToFit>
+        <Text style={[styles.totalLabel, { color: theme.totalCardSub }]}>
+          {expensesOnly ? 'Gastado este mes' : 'Balance total'}
+        </Text>
+        <Text
+          style={[styles.totalAmount, { color: expensesOnly ? '#FCA5A5' : total >= 0 ? '#fff' : Colors.error }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
           {formatCurrency(total)}
         </Text>
         <Text style={[styles.totalSub, { color: theme.totalCardSub }]}>
@@ -83,7 +116,7 @@ export default function AccountsScreen() {
         </Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingHorizontal: gutter }]}>
         {accountsWithBalance.length === 0 && (
           <View style={styles.emptyState}>
             <Wallet size={48} color={theme.textFaint} strokeWidth={1.5} />
@@ -102,7 +135,7 @@ export default function AccountsScreen() {
             return (
               <TouchableOpacity
                 key={acc.id}
-                style={[styles.accountCard, { backgroundColor: theme.card }, cardShadow]}
+                style={[styles.accountCard, { backgroundColor: theme.card, padding: cardPadding }, cardShadow]}
                 onPress={() => handleEdit(acc)}
                 activeOpacity={0.7}
               >
@@ -114,12 +147,18 @@ export default function AccountsScreen() {
                 </View>
                 <Text style={[styles.accName, { color: theme.textMuted }]} numberOfLines={1}>{acc.name}</Text>
                 <Text
-                  style={[styles.accBalance, { color: acc.balance >= 0 ? theme.text : Colors.error }]}
+                  style={[
+                    styles.accBalance,
+                    { color: expensesOnly ? Colors.expense : acc.balance >= 0 ? theme.text : Colors.error },
+                  ]}
                   numberOfLines={1}
                   adjustsFontSizeToFit
                 >
                   {formatCurrency(acc.balance)}
                 </Text>
+                {expensesOnly && (
+                  <Text style={[styles.accSub, { color: theme.textFaint }]} numberOfLines={1}>gastado este mes</Text>
+                )}
               </TouchableOpacity>
             );
           })}
@@ -127,11 +166,38 @@ export default function AccountsScreen() {
 
         {accountsWithBalance.length > 0 && (
           <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Movimiento del mes</Text>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>{expensesOnly ? 'Gastos del mes' : 'Movimiento del mes'}</Text>
             <MonthSelector monthKey={currentMonth} onPrev={goPrev} onNext={goNext} canGoNext={canGoNext} />
             <View style={{ height: Spacing.md }} />
             <View style={{ gap: Spacing.md }}>
-              {monthSummaries.map(({ acc, income, expense, transfersIn, transfersOut, net }) => {
+              {monthSummaries.map(({ acc, income, expense, transfersIn, transfersOut, net, expenseCount, topCategory }) => {
+                if (expensesOnly) {
+                  return (
+                    <View key={acc.id} style={[styles.summaryCard, { backgroundColor: theme.card }, cardShadow]}>
+                      <View style={styles.summaryHeader}>
+                        <View style={[styles.summaryDot, { backgroundColor: acc.color }]} />
+                        <Text style={[styles.summaryName, { color: theme.text }]} numberOfLines={1}>{acc.name}</Text>
+                        <Text style={[styles.summaryNet, { color: Colors.expense }]} numberOfLines={1}>
+                          {formatCurrency(expense)}
+                        </Text>
+                      </View>
+                      {expenseCount > 0 ? (
+                        <>
+                          <View style={styles.summaryRow}>
+                            <Text style={[styles.summaryLabel, { color: theme.textMuted, flexShrink: 1 }]}>Nº de gastos</Text>
+                            <Text style={[styles.summaryValue, { color: theme.text }]}>{expenseCount}</Text>
+                          </View>
+                          <View style={styles.summaryRow}>
+                            <Text style={[styles.summaryLabel, { color: theme.textMuted, flexShrink: 1 }]}>Categoría principal</Text>
+                            <Text style={[styles.summaryValue, { color: theme.text, flexShrink: 1 }]} numberOfLines={1}>{topCategory}</Text>
+                          </View>
+                        </>
+                      ) : (
+                        <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Sin gastos este mes</Text>
+                      )}
+                    </View>
+                  );
+                }
                 const rows: { label: string; value: number; color: string; sign: string }[] = [
                   { label: 'Ingresos', value: income, color: Colors.income, sign: '+' },
                   { label: 'Gastos', value: expense, color: Colors.expense, sign: '−' },
@@ -143,13 +209,13 @@ export default function AccountsScreen() {
                     <View style={styles.summaryHeader}>
                       <View style={[styles.summaryDot, { backgroundColor: acc.color }]} />
                       <Text style={[styles.summaryName, { color: theme.text }]} numberOfLines={1}>{acc.name}</Text>
-                      <Text style={[styles.summaryNet, { color: net >= 0 ? Colors.income : Colors.error }]}>
+                      <Text style={[styles.summaryNet, { color: net >= 0 ? Colors.income : Colors.error }]} numberOfLines={1}>
                         {net > 0 ? '+' : ''}{formatCurrency(net)}
                       </Text>
                     </View>
                     {rows.filter((r) => r.value > 0).map((r) => (
                       <View key={r.label} style={styles.summaryRow}>
-                        <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>{r.label}</Text>
+                        <Text style={[styles.summaryLabel, { color: theme.textMuted, flexShrink: 1 }]}>{r.label}</Text>
                         <Text style={[styles.summaryValue, { color: r.color }]}>{r.sign}{formatCurrency(r.value)}</Text>
                       </View>
                     ))}
@@ -170,19 +236,26 @@ export default function AccountsScreen() {
         onSave={handleSave}
         onDelete={handleDelete}
         editing={editing}
-        balance={editing ? accountBalance(data.transactions, editing.id) : 0}
+        balance={
+          editing
+            ? expensesOnly
+              ? accountExpense(thisMonthExpenses, editing.id)
+              : accountBalance(data.transactions, editing.id)
+            : 0
+        }
+        balanceLabel={expensesOnly ? 'Gastado este mes' : 'Balance actual'}
+        balanceColor={expensesOnly ? Colors.expense : undefined}
       />
-    </SafeAreaView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
   headerBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.md,
   },
-  headerTitle: { fontSize: 28, fontFamily: FontFamily.bold },
+  headerTitle: { flexShrink: 1, fontSize: 28, fontFamily: FontFamily.bold },
   fab: {
     width: 48, height: 48, borderRadius: Radius.full, backgroundColor: Colors.primary[600],
     alignItems: 'center', justifyContent: 'center',
@@ -197,18 +270,19 @@ const styles = StyleSheet.create({
   totalSub: { fontSize: 13, fontFamily: FontFamily.medium, marginTop: 4 },
   scrollContent: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl },
   accountGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.md },
-  accountCard: { flexBasis: '47%', flexGrow: 1, flexShrink: 0, minWidth: 140, borderRadius: Radius.xl, padding: Spacing.lg },
+  accountCard: { flexBasis: '47%', flexGrow: 1, flexShrink: 0, minWidth: 120, borderRadius: Radius.xl, padding: Spacing.lg },
   accountCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.md },
   accIcon: { width: 40, height: 40, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
   accName: { fontSize: 14, fontFamily: FontFamily.medium, marginBottom: 4 },
   accBalance: { fontSize: 20, fontFamily: FontFamily.bold },
+  accSub: { fontSize: 12, fontFamily: FontFamily.regular, marginTop: 2 },
   sectionTitle: { fontSize: 18, fontFamily: FontFamily.bold, marginTop: Spacing.lg, marginBottom: Spacing.sm },
   summaryCard: { borderRadius: Radius.xl, padding: Spacing.md, gap: 6 },
   summaryHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: 2 },
   summaryDot: { width: 10, height: 10, borderRadius: 5 },
   summaryName: { flex: 1, fontSize: 15, fontFamily: FontFamily.semibold },
   summaryNet: { fontSize: 15, fontFamily: FontFamily.bold },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
   summaryLabel: { fontSize: 13, fontFamily: FontFamily.regular },
   summaryValue: { fontSize: 13, fontFamily: FontFamily.semibold },
   emptyState: { alignItems: 'center', paddingTop: Spacing.xxl, paddingHorizontal: Spacing.xl, gap: Spacing.sm },

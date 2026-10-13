@@ -10,9 +10,39 @@ export function formatCurrency(amount: number): string {
   }).format(amount);
 }
 
+// Importe abreviado para etiquetas de gráficas: 850, 1,2k, 15k, 1,5M.
+export function formatCompact(amount: number): string {
+  const abs = Math.abs(amount);
+  const short = (n: number) => (Math.abs(n) >= 10 ? n.toFixed(0) : n.toFixed(1).replace(/\.0$/, '')).replace('.', ',');
+  if (abs >= 1_000_000) return `${short(amount / 1_000_000)}M`;
+  if (abs >= 1000) return `${short(amount / 1000)}k`;
+  return String(Math.round(amount));
+}
+
+// Redondea hacia arriba a un valor "bonito" (1, 2, 2,5, 5 × 10^n) para el tope del eje Y.
+export function niceMax(value: number): number {
+  if (value <= 0) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(value)));
+  const norm = value / mag;
+  const step = [1, 2, 2.5, 5, 10].find((s) => norm <= s) ?? 10;
+  return step * mag;
+}
+
 export function monthKey(date: Date | string): string {
   const d = typeof date === 'string' ? parseISO(date) : date;
   return `${getYear(d)}-${String(getMonth(d) + 1).padStart(2, '0')}`;
+}
+
+export function shiftMonth(key: string, delta: number): string {
+  const [y, m] = key.split('-');
+  return monthKey(new Date(Number(y), Number(m) - 1 + delta, 1));
+}
+
+// Días transcurridos del mes: todos si ya pasó, hasta hoy si es el mes actual.
+export function elapsedDays(key: string): number {
+  const [y, m] = key.split('-');
+  const daysInMonth = new Date(Number(y), Number(m), 0).getDate();
+  return key === monthKey(new Date()) ? new Date().getDate() : daysInMonth;
 }
 
 export function monthLabel(key: string): string {
@@ -139,6 +169,11 @@ export function dailySpending(transactions: Transaction[], key: string): number[
       result[day] += t.amount;
     });
   return result;
+}
+
+// Fecha ISO del día `dayIndex` (0 = día 1) del mes `key` (yyyy-mm).
+export function dayISO(key: string, dayIndex: number): string {
+  return `${key}-${String(dayIndex + 1).padStart(2, '0')}`;
 }
 
 export function todayISO(): string {

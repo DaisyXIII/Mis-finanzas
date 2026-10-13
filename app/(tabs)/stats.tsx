@@ -2,25 +2,33 @@ import React, { useState, useMemo } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFinance } from '@/context/FinanceContext';
 import { Colors, FontFamily, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/useTheme';
+import { useLayout } from '@/hooks/useLayout';
 import { useMonthNavigator } from '@/hooks/useMonthNavigator';
 import {
-  filterByMonth, sumByType, categoryBreakdown, formatCurrency, last6MonthsData,
+  filterByMonth, sumByType, categoryBreakdown, formatCurrency, last6MonthsData, elapsedDays,
 } from '@/lib/finance';
+import { Screen } from '@/components/Screen';
 import { MonthSelector } from '@/components/MonthSelector';
 import { DonutChart } from '@/components/DonutChart';
 import { MonthlyBarChart } from '@/components/MonthlyBarChart';
+import { TransactionListSheet } from '@/components/TransactionListSheet';
 
 type TabType = 'expense' | 'income';
 
 export default function StatsScreen() {
   const { data } = useFinance();
   const { theme } = useTheme();
+  const { gutter, cardPadding } = useLayout();
   const { currentMonth, goPrev, goNext, canGoNext } = useMonthNavigator();
-  const [tab, setTab] = useState<TabType>('expense');
+  const [tabChoice, setTabChoice] = useState<TabType>('expense');
+  const [sheetCategory, setSheetCategory] = useState('');
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const expensesOnly = data.settings.mode === 'expenses';
+  // En el modo "solo gastos" no hay pestaña de ingresos.
+  const tab: TabType = expensesOnly ? 'expense' : tabChoice;
 
   const monthTransactions = useMemo(() => filterByMonth(data.transactions, currentMonth), [data.transactions, currentMonth]);
   const incomeTotal = useMemo(() => sumByType(monthTransactions, 'income'), [monthTransactions]);
@@ -37,70 +45,97 @@ export default function StatsScreen() {
 
   const currentTotal = tab === 'expense' ? expenseTotal : incomeTotal;
 
+  const sheetTransactions = useMemo(
+    () => monthTransactions.filter((t) => t.type === tab && t.category === sheetCategory),
+    [monthTransactions, tab, sheetCategory]
+  );
+  const openCategory = (category: string) => { setSheetCategory(category); setSheetOpen(true); };
+
   const cardShadow = Platform.select({
     ios: { shadowColor: theme.shadowColor, shadowOpacity: theme.shadowOpacity, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
     android: { elevation: 3 },
   });
 
   return (
-    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.background }]}>
-      <View style={styles.headerBar}>
+    <Screen>
+      <View style={[styles.headerBar, { paddingHorizontal: gutter }]}>
         <Text style={[styles.headerTitle, { color: theme.text }]}>Estadísticas</Text>
       </View>
 
-      <View style={styles.padding}>
+      <View style={{ paddingHorizontal: gutter }}>
         <MonthSelector monthKey={currentMonth} onPrev={goPrev} onNext={goNext} canGoNext={canGoNext} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={[styles.toggleRow, { backgroundColor: theme.toggleBg }]}>
-          <TouchableOpacity
-            style={[styles.toggleBtn, tab === 'expense' && styles.toggleExpense]}
-            onPress={() => setTab('expense')}
-          >
-            <Text style={[styles.toggleText, { color: theme.textMuted }, tab === 'expense' && styles.toggleTextActive]}>Gastos</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleBtn, tab === 'income' && styles.toggleIncome]}
-            onPress={() => setTab('income')}
-          >
-            <Text style={[styles.toggleText, { color: theme.textMuted }, tab === 'income' && styles.toggleTextActive]}>Ingresos</Text>
-          </TouchableOpacity>
-        </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { paddingHorizontal: gutter }]}>
+        {!expensesOnly && (
+          <View style={[styles.toggleRow, { backgroundColor: theme.toggleBg }]}>
+            <TouchableOpacity
+              style={[styles.toggleBtn, tab === 'expense' && styles.toggleExpense]}
+              onPress={() => setTabChoice('expense')}
+            >
+              <Text style={[styles.toggleText, { color: theme.textMuted }, tab === 'expense' && styles.toggleTextActive]}>Gastos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleBtn, tab === 'income' && styles.toggleIncome]}
+              onPress={() => setTabChoice('income')}
+            >
+              <Text style={[styles.toggleText, { color: theme.textMuted }, tab === 'income' && styles.toggleTextActive]}>Ingresos</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {!expensesOnly && <View style={{ height: Spacing.lg }} />}
+        <DonutChart segments={segments} total={currentTotal} type={tab} onSelectCategory={openCategory} />
+        <View style={{ height: Spacing.lg }} />
+        <MonthlyBarChart data={sixMonths} showIncome={!expensesOnly} />
 
         <View style={{ height: Spacing.lg }} />
-        <DonutChart segments={segments} total={currentTotal} type={tab} />
-        <View style={{ height: Spacing.lg }} />
-        <MonthlyBarChart data={sixMonths} />
-
-        <View style={{ height: Spacing.lg }} />
-        <View style={[styles.summaryCard, { backgroundColor: theme.card }, cardShadow]}>
+        <View style={[styles.summaryCard, { backgroundColor: theme.card, padding: cardPadding }, cardShadow]}>
           <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
-              <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Ingresos del mes</Text>
-              <Text style={[styles.summaryValue, { color: Colors.income }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(incomeTotal)}</Text>
-            </View>
+            {expensesOnly ? (
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Media diaria</Text>
+                <Text style={[styles.summaryValue, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit>
+                  {formatCurrency(expenseTotal / Math.max(elapsedDays(currentMonth), 1))}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.summaryItem}>
+                <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Ingresos del mes</Text>
+                <Text style={[styles.summaryValue, { color: Colors.income }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(incomeTotal)}</Text>
+              </View>
+            )}
             <View style={styles.summaryItem}>
               <Text style={[styles.summaryLabel, { color: theme.textFaint }]}>Gastos del mes</Text>
               <Text style={[styles.summaryValue, { color: Colors.expense }]} numberOfLines={1} adjustsFontSizeToFit>{formatCurrency(expenseTotal)}</Text>
             </View>
           </View>
-          <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
-          <View style={styles.balanceRow}>
-            <Text style={[styles.balanceLabel, { color: theme.textSecondary }]}>Balance neto</Text>
-            <Text style={[styles.balanceValue, { color: incomeTotal - expenseTotal >= 0 ? Colors.income : Colors.expense }]}>
-              {formatCurrency(incomeTotal - expenseTotal)}
-            </Text>
-          </View>
+          {!expensesOnly && (
+            <>
+              <View style={[styles.summaryDivider, { backgroundColor: theme.borderLight }]} />
+              <View style={styles.balanceRow}>
+                <Text style={[styles.balanceLabel, { color: theme.textSecondary }]}>Balance neto</Text>
+                <Text style={[styles.balanceValue, { color: incomeTotal - expenseTotal >= 0 ? Colors.income : Colors.expense }]}>
+                  {formatCurrency(incomeTotal - expenseTotal)}
+                </Text>
+              </View>
+            </>
+          )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+
+      <TransactionListSheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        title={sheetCategory}
+        transactions={sheetTransactions}
+        emptyText="Sin movimientos en esta categoría"
+      />
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  padding: { paddingHorizontal: Spacing.lg },
   headerBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, paddingBottom: Spacing.md,

@@ -4,6 +4,7 @@ import {
   DEFAULT_INCOME_CATEGORIES,
   DEFAULT_EXPENSE_CATEGORIES,
   DEFAULT_ACCOUNTS,
+  DEFAULT_SETTINGS,
 } from '@/constants/finance';
 
 const STORAGE_KEY = 'finance_data_v1';
@@ -18,6 +19,7 @@ function defaultData(): FinanceData {
     accounts: [...DEFAULT_ACCOUNTS],
     incomeCategories: [...DEFAULT_INCOME_CATEGORIES],
     expenseCategories: [...DEFAULT_EXPENSE_CATEGORIES],
+    settings: { ...DEFAULT_SETTINGS },
   };
 }
 
@@ -31,6 +33,8 @@ export async function loadData(): Promise<FinanceData> {
       accounts: parsed.accounts?.length ? parsed.accounts : [...DEFAULT_ACCOUNTS],
       incomeCategories: parsed.incomeCategories ?? [...DEFAULT_INCOME_CATEGORIES],
       expenseCategories: parsed.expenseCategories ?? [...DEFAULT_EXPENSE_CATEGORIES],
+      // Los datos guardados antes de existir los ajustes no traen este campo.
+      settings: { ...DEFAULT_SETTINGS, ...parsed.settings },
     };
   } catch {
     return defaultData();

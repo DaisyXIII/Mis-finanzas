@@ -1,4 +1,6 @@
-import type { CategoryDef, Account } from '@/types/finance';
+import type { CategoryDef, Account, AppSettings } from '@/types/finance';
+
+export const DEFAULT_SETTINGS: AppSettings = { mode: 'full', theme: 'system' };
 
 export const DEFAULT_INCOME_CATEGORIES: CategoryDef[] = [
   { name: 'Salario', icon: 'Briefcase', color: '#10B981' },
@@ -39,6 +41,66 @@ export const ACCOUNT_ICONS = [
   'Landmark',
   'Banknote',
   'Smartphone',
+];
+
+export const CATEGORY_COLORS = [
+  '#EF4444',
+  '#F97316',
+  '#F59E0B',
+  '#10B981',
+  '#14B8A6',
+  '#06B6D4',
+  '#3B82F6',
+  '#6366F1',
+  '#8B5CF6',
+  '#EC4899',
+  '#64748B',
+];
+
+// Iconos que se pueden elegir al crear una categoría (deben existir en constants/icons.ts).
+export const CATEGORY_ICONS = [
+  'UtensilsCrossed',
+  'Pizza',
+  'Coffee',
+  'ShoppingCart',
+  'ShoppingBag',
+  'Shirt',
+  'Car',
+  'Fuel',
+  'Bus',
+  'Train',
+  'Plane',
+  'Home',
+  'Zap',
+  'Wifi',
+  'Smartphone',
+  'ReceiptText',
+  'HeartPulse',
+  'Pill',
+  'Dumbbell',
+  'Scissors',
+  'Gamepad2',
+  'Film',
+  'Music',
+  'Tv',
+  'Book',
+  'GraduationCap',
+  'Baby',
+  'PawPrint',
+  'Gift',
+  'Wrench',
+  'Briefcase',
+  'Laptop',
+  'TrendingUp',
+  'Coins',
+  'HandCoins',
+  'PiggyBank',
+  'Banknote',
+  'Landmark',
+  'Trophy',
+  'Tag',
+  'PlusCircle',
+  'MinusCircle',
 ];
 
 export const DEFAULT_ACCOUNTS: Account[] = [

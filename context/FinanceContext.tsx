@@ -5,7 +5,10 @@ import React, {
   useState,
   useCallback,
 } from 'react';
-import type { FinanceData, Transaction, Account } from '@/types/finance';
+import type {
+  FinanceData, Transaction, Account, AppSettings, CategoryDef, CategoryType,
+} from '@/types/finance';
+import { DEFAULT_SETTINGS } from '@/constants/finance';
 import { loadData, saveData, makeTransaction, makeAccount } from '@/lib/storage';
 
 interface FinanceContextValue {
@@ -17,6 +20,14 @@ interface FinanceContextValue {
   addAccount: (a: Omit<Account, 'id' | 'createdAt'>) => void;
   updateAccount: (id: string, a: Omit<Account, 'id' | 'createdAt'>) => void;
   deleteAccount: (id: string) => void;
+  addCategory: (type: CategoryType, c: CategoryDef) => void;
+  updateCategory: (type: CategoryType, oldName: string, c: CategoryDef) => void;
+  deleteCategory: (type: CategoryType, name: string) => void;
+  updateSettings: (s: Partial<AppSettings>) => void;
+}
+
+function categoryKey(type: CategoryType): 'incomeCategories' | 'expenseCategories' {
+  return type === 'income' ? 'incomeCategories' : 'expenseCategories';
 }
 
 const FinanceContext = createContext<FinanceContextValue | null>(null);
@@ -27,6 +38,7 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     accounts: [],
     incomeCategories: [],
     expenseCategories: [],
+    settings: { ...DEFAULT_SETTINGS },
   });
   const [loading, setLoading] = useState(true);
 
@@ -98,6 +110,36 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
+  const addCategory = useCallback((type: CategoryType, c: CategoryDef) => {
+    const key = categoryKey(type);
+    setData((prev) => ({ ...prev, [key]: [...prev[key], c] }));
+  }, []);
+
+  // Los movimientos guardan el nombre de la categoría, así que al renombrarla se actualizan también.
+  const updateCategory = useCallback((type: CategoryType, oldName: string, c: CategoryDef) => {
+    const key = categoryKey(type);
+    setData((prev) => ({
+      ...prev,
+      [key]: prev[key].map((existing) => (existing.name === oldName ? c : existing)),
+      transactions:
+        oldName === c.name
+          ? prev.transactions
+          : prev.transactions.map((t) =>
+              t.type === type && t.category === oldName ? { ...t, category: c.name } : t
+            ),
+    }));
+  }, []);
+
+  // Los movimientos de una categoría borrada conservan su nombre (se muestran con icono genérico).
+  const deleteCategory = useCallback((type: CategoryType, name: string) => {
+    const key = categoryKey(type);
+    setData((prev) => ({ ...prev, [key]: prev[key].filter((c) => c.name !== name) }));
+  }, []);
+
+  const updateSettings = useCallback((s: Partial<AppSettings>) => {
+    setData((prev) => ({ ...prev, settings: { ...prev.settings, ...s } }));
+  }, []);
+
   return (
     <FinanceContext.Provider
       value={{
@@ -109,6 +151,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         addAccount,
         updateAccount,
         deleteAccount,
+        addCategory,
+        updateCategory,
+        deleteCategory,
+        updateSettings,
       }}
     >
       {children}
