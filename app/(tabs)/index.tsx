@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import {
   StyleSheet, View, Text, ScrollView, TouchableOpacity, Platform,
 } from 'react-native';
-import { Plus, Wallet, ArrowRight } from 'lucide-react-native';
+import { Plus, Wallet, ArrowRight, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { format, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -15,6 +15,7 @@ import { useMonthNavigator } from '@/hooks/useMonthNavigator';
 import {
   filterByMonth, sumByType, balanceFor, totalBalance, accountBalance, categoryBreakdown,
   dailySpending, last6MonthsData, sortByDateDesc, formatCurrency, dayISO, shiftMonth, elapsedDays,
+  monthKey,
 } from '@/lib/finance';
 import { Screen } from '@/components/Screen';
 import { MonthSelector } from '@/components/MonthSelector';
@@ -40,7 +41,9 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { currentMonth, goPrev, goNext, canGoNext } = useMonthNavigator();
   const [showForm, setShowForm] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  // Día elegido en la gráfica diaria; se guarda junto a su mes para volver al valor por defecto al cambiar de mes.
+  const [dayPick, setDayPick] = useState<{ month: string; index: number | null }>({ month: '', index: null });
+  const [scrubbing, setScrubbing] = useState(false);
   // El contenido se conserva al cerrar para que no se vacíe durante la animación de salida.
   const [sheet, setSheet] = useState<SheetContent>({ title: '', transactions: [], emptyText: '' });
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -84,12 +87,29 @@ export default function DashboardScreen() {
       .slice(0, 3);
   }, [data.accounts, data.transactions, expensesOnly, visibleTx]);
 
+  // En el mes en curso se parte de hoy; en meses pasados no hay día elegido hasta que se toque la gráfica.
+  const lastDay = elapsedDays(currentMonth) - 1;
+  const selectedDay =
+    dayPick.month === currentMonth ? dayPick.index : currentMonth === monthKey(new Date()) ? lastDay : null;
+  const selectDay = (index: number) => setDayPick({ month: currentMonth, index });
+  const stepDay = (delta: number) => {
+    if (selectedDay == null) selectDay(delta > 0 ? 0 : lastDay);
+    else selectDay(Math.max(0, Math.min(selectedDay + delta, lastDay)));
+  };
+  const dayLabel = (index: number) => {
+    const label = format(parseISO(dayISO(currentMonth, index)), "EEEE d 'de' MMMM", { locale: es });
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  };
+  const dayTxCount = useMemo(() => {
+    if (selectedDay == null) return 0;
+    const date = dayISO(currentMonth, selectedDay);
+    return visibleTx.filter((t) => t.date === date).length;
+  }, [visibleTx, currentMonth, selectedDay]);
+
   const openDay = (index: number) => {
     const date = dayISO(currentMonth, index);
-    setSelectedDay(index);
-    const label = format(parseISO(date), "EEEE d 'de' MMMM", { locale: es });
     setSheet({
-      title: label.charAt(0).toUpperCase() + label.slice(1),
+      title: dayLabel(index),
       transactions: visibleTx.filter((t) => t.date === date),
       emptyText: expensesOnly ? 'Sin gastos este día' : 'Sin movimientos este día',
     });
@@ -105,7 +125,7 @@ export default function DashboardScreen() {
     setSheetOpen(true);
   };
 
-  const closeSheet = () => { setSheetOpen(false); setSelectedDay(null); };
+  const closeSheet = () => setSheetOpen(false);
 
   const cardShadow = Platform.select({
     ios: { shadowColor: theme.shadowColor, shadowOpacity: theme.shadowOpacity, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
@@ -117,7 +137,7 @@ export default function DashboardScreen() {
 
   return (
     <Screen>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { padding: gutter }]}>
+      <ScrollView scrollEnabled={!scrubbing} showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scrollContent, { padding: gutter }]}>
         <View style={styles.header}>
           <View style={styles.headerText}>
             <Text style={[styles.greeting, { color: theme.textFaint }]}>
@@ -215,8 +235,56 @@ export default function DashboardScreen() {
             <Text style={[styles.cardTitle, { color: theme.text }]}>Gastos diarios</Text>
             <Text style={[styles.cardSub, { color: theme.textFaint }]}>{formatCurrency(expense)} total</Text>
           </View>
-          <Text style={[styles.hint, { color: theme.textFaint }]}>Toca un día para ver sus movimientos</Text>
-          <DailyBarChart data={dailyData} color={Colors.expense} selectedIndex={selectedDay} onSelectDay={openDay} />
+          <View style={[styles.dayReadout, { backgroundColor: theme.toggleBg }]}>
+            <TouchableOpacity
+              style={styles.dayNav}
+              onPress={() => stepDay(-1)}
+              disabled={selectedDay === 0}
+              hitSlop={6}
+              accessibilityLabel="Día anterior"
+            >
+              <ChevronLeft size={22} color={selectedDay === 0 ? theme.placeholder : theme.textSecondary} strokeWidth={2.2} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dayInfo}
+              onPress={() => selectedDay != null && openDay(selectedDay)}
+              disabled={selectedDay == null}
+              activeOpacity={0.7}
+            >
+              {selectedDay == null ? (
+                <Text style={[styles.dayLabel, { color: theme.textMuted }]}>Toca o desliza el dedo por la gráfica</Text>
+              ) : (
+                <>
+                  <Text style={[styles.dayLabel, { color: theme.textMuted }]} numberOfLines={1}>{dayLabel(selectedDay)}</Text>
+                  <Text style={[styles.dayAmount, { color: dailyData[selectedDay] > 0 ? Colors.expense : theme.textFaint }]} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatCurrency(dailyData[selectedDay] ?? 0)}
+                  </Text>
+                  <Text style={[styles.dayLink, { color: dayTxCount > 0 ? Colors.primary[600] : theme.textFaint }]} numberOfLines={1}>
+                    {dayTxCount === 0
+                      ? (expensesOnly ? 'Sin gastos' : 'Sin movimientos')
+                      : `Ver ${dayTxCount} ${expensesOnly ? 'gasto' : 'movimiento'}${dayTxCount === 1 ? '' : 's'} ›`}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dayNav}
+              onPress={() => stepDay(1)}
+              disabled={selectedDay === lastDay}
+              hitSlop={6}
+              accessibilityLabel="Día siguiente"
+            >
+              <ChevronRight size={22} color={selectedDay === lastDay ? theme.placeholder : theme.textSecondary} strokeWidth={2.2} />
+            </TouchableOpacity>
+          </View>
+          <DailyBarChart
+            data={dailyData}
+            color={Colors.expense}
+            selectedIndex={selectedDay}
+            onSelectDay={selectDay}
+            maxIndex={lastDay}
+            onScrubChange={setScrubbing}
+          />
         </View>
 
         {expensesOnly && (
@@ -300,7 +368,15 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm + 2 },
   cardTitle: { flexShrink: 1, fontSize: 16, fontFamily: FontFamily.semibold },
   cardSub: { fontSize: 13, fontFamily: FontFamily.medium },
-  hint: { fontSize: 12, fontFamily: FontFamily.regular, marginTop: -Spacing.xs, marginBottom: Spacing.sm },
+  dayReadout: {
+    flexDirection: 'row', alignItems: 'center', borderRadius: Radius.lg,
+    paddingVertical: Spacing.sm, paddingHorizontal: Spacing.xs, marginBottom: Spacing.md,
+  },
+  dayNav: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  dayInfo: { flex: 1, alignItems: 'center', gap: 2, minHeight: 58, justifyContent: 'center' },
+  dayLabel: { fontSize: 13, fontFamily: FontFamily.medium, textAlign: 'center' },
+  dayAmount: { fontSize: 22, fontFamily: FontFamily.bold },
+  dayLink: { fontSize: 12, fontFamily: FontFamily.semibold },
   sectionTitle: { fontSize: 16, fontFamily: FontFamily.semibold, marginBottom: Spacing.sm },
   statsRow: { flexDirection: 'row', paddingHorizontal: Spacing.sm, paddingVertical: Spacing.md },
   statItem: { flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: Spacing.xs },

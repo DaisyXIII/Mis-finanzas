@@ -263,8 +263,10 @@ const styles = StyleSheet.create({
       android: { elevation: 4 },
     }),
   },
-  filterScroll: { flexGrow: 0, marginTop: Spacing.md },
-  filterRow: { gap: Spacing.sm },
+  // ScrollView trae flexShrink: 1 por defecto: sin flexShrink: 0 la fila de chips se aplasta
+  // cuando el resto de la pantalla (estado vacío, línea de saldo) necesita más alto.
+  filterScroll: { flexGrow: 0, flexShrink: 0, marginTop: Spacing.md },
+  filterRow: { gap: Spacing.sm, alignItems: 'center' },
   filterChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6, maxWidth: 180,
     paddingHorizontal: Spacing.md, paddingVertical: Spacing.xs + 3,

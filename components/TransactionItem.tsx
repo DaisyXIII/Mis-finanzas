@@ -29,6 +29,10 @@ export function TransactionItem({ transaction, onPress, perspectiveAccount }: Pr
       };
   const IconComp = getIcon(catInfo.icon);
   const amountColor = isTransfer ? Colors.transfer : isIncome ? Colors.income : Colors.expense;
+  // Si hay nota, es el título principal y la categoría pasa a la línea secundaria.
+  const categoryLabel = isTransfer ? 'Transferencia' : transaction.category;
+  const note = transaction.note?.trim();
+  const title = note || categoryLabel;
   const transferSign =
     isTransfer && perspectiveAccount
       ? transaction.toAccount === perspectiveAccount ? '+' : transaction.account === perspectiveAccount ? '−' : ''
@@ -46,7 +50,7 @@ export function TransactionItem({ transaction, onPress, perspectiveAccount }: Pr
       </View>
       <View style={styles.middle}>
         <Text style={[styles.category, { color: theme.text }]} numberOfLines={1}>
-          {isTransfer ? 'Transferencia' : transaction.category}
+          {title}
         </Text>
         <View style={styles.subRow}>
           <View style={[styles.accountDot, { backgroundColor: getAccountColor(data.accounts, transaction.account) }]} />
@@ -62,10 +66,10 @@ export function TransactionItem({ transaction, onPress, perspectiveAccount }: Pr
               </Text>
             </>
           )}
-          {transaction.note ? (
+          {note ? (
             <>
               <Text style={[styles.dotSep, { color: theme.textFaint }]}>·</Text>
-              <Text style={[styles.note, { color: theme.textFaint }]} numberOfLines={1}>{transaction.note}</Text>
+              <Text style={[styles.note, { color: theme.textFaint }]} numberOfLines={1}>{categoryLabel}</Text>
             </>
           ) : null}
         </View>
